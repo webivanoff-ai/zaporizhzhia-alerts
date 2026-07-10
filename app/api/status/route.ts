@@ -1,34 +1,27 @@
 import { NextResponse } from 'next/server';
-import { getState, getEvents, calculateStats } from '@/lib/alerts';
+import { redis } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [state, events] = await Promise.all([getState(), getEvents()]);
+    const stateStr = await redis.get('alert:state');
+    const state = stateStr 
+      ? JSON.parse(stateStr) 
+      : { alert: false, lastChange: new Date().toISOString(), checkedAt: new Date().toISOString() };
+      
+    const events = await redis.lrange('alert:events', 0, -1);
+    const parsedEvents = events.map((e: string) => JSON.parse(e)).reverse().slice(0, 15);
     
-    const defaultState = {
-      alert: false,
-      lastChange: new Date().toISOString(),
-      checkedAt: new Date().toISOString(),
-    };
-
-    const currentState = state ?? defaultState;
-    const stats = calculateStats(events, state);
+    const currentDuration = Math.floor((Date.now() - new Date(state.lastChange).getTime()) / 1000);
     
-    const currentDuration = Math.floor(
-      (Date.now() - new Date(currentState.lastChange).getTime()) / 1000
-    );
-
     return NextResponse.json({
       success: true,
-      state: currentState,
+      state,
       currentDuration,
-      stats,
-      events: events.slice(-15).reverse(),
+      events: parsedEvents,
     });
   } catch (error) {
-    console.error('Status error:', error);
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
