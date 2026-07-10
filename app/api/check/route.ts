@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Надёжный источник: vadimklimenko.com (обновляется в реальном времени)
     const response = await fetch('https://vadimklimenko.com/map/statuses.json', {
       headers: { 'User-Agent': 'AlertTracker/1.0' },
       cache: 'no-store',
@@ -16,15 +15,25 @@ export async function GET() {
     
     const data = await response.json();
     
-    // Ищем Запорожскую область в массиве регионов
+    // Ищем Запорожскую область по точному ключу
+    const regionKey = 'Запорізька область';
     let isAlertNow = false;
-    const regions = Array.isArray(data) ? data : Object.values(data);
+    let alertDistricts: string[] = [];
     
-    for (const region of regions) {
-      const name = String(region.name || '').toLowerCase();
-      if (name.includes('запоріз') || name.includes('zaporizh')) {
-        isAlertNow = Boolean(region.status);
-        break;
+    if (data[regionKey]) {
+      // Проверяем статус всей области
+      isAlertNow = Boolean(data[regionKey].enabled);
+      
+      // Если область не в тревоге, проверяем районы
+      if (!isAlertNow && data[regionKey].districts) {
+        const districts = data[regionKey].districts;
+        alertDistricts = Object.keys(districts).filter(
+          (district) => districts[district].enabled
+        );
+        // Если есть хотя бы один район с тревогой — считаем что тревога
+        if (alertDistricts.length > 0) {
+          isAlertNow = true;
+        }
       }
     }
     
@@ -37,17 +46,20 @@ export async function GET() {
     if (!currentState || currentState.alert !== isAlertNow) {
       await redis.rpush('alert:events', JSON.stringify({
         type: isAlertNow ? 'alert_start' : 'alert_end',
-        time: now
+        time: now,
+        districts: alertDistricts.length > 0 ? alertDistricts : undefined
       }));
       await redis.set('alert:state', JSON.stringify({
         alert: isAlertNow,
         lastChange: now,
-        checkedAt: now
+        checkedAt: now,
+        districts: alertDistricts
       }));
     } else {
       await redis.set('alert:state', JSON.stringify({
         ...currentState,
-        checkedAt: now
+        checkedAt: now,
+        districts: alertDistricts
       }));
     }
     
@@ -55,6 +67,7 @@ export async function GET() {
       success: true, 
       alert: isAlertNow,
       source: 'vadimklimenko.com',
+      districts: alertDistricts,
       time: now 
     });
   } catch (error: any) {
