@@ -10,37 +10,36 @@ export async function GET() {
     });
     
     if (!response.ok) {
-      return NextResponse.json({ error: 'API failed', status: response.status }, { status: 502 });
+      return NextResponse.json({ error: 'API failed' }, { status: 502 });
     }
     
     const data = await response.json();
     
-    // ИСПРАВЛЕНИЕ: Данные лежат внутри массива data.states
-    const states = data.states || [];
-    const regionData = states.find((s: any) => s.name === 'Запорізька область');
+    // ИСПРАВЛЕНИЕ: states - это объект, а не массив
+    // Обращаемся напрямую по ключу "Запорізька область"
+    const regionData = data.states['Запорізька область'];
     
     if (!regionData) {
+      // Для отладки показываем все доступные ключи
+      const keys = Object.keys(data.states || {});
       return NextResponse.json({ 
-        error: 'Region not found', 
-        available: states.map((s: any) => s.name).slice(0, 5) 
+        error: 'Region not found',
+        availableKeys: keys.slice(0, 10)
       }, { status: 404 });
     }
     
-    // Берем статус тревоги
     const isAlertNow = Boolean(regionData.alertnow);
-    
     const { redis } = await import('@/lib/redis');
+    
     const stateStr = await redis.get('alert:state');
     const currentState = stateStr ? JSON.parse(stateStr) : null;
     const now = new Date().toISOString();
     
-    // Если статус изменился - записываем событие
     if (!currentState || currentState.alert !== isAlertNow) {
       await redis.rpush('alert:events', JSON.stringify({
         type: isAlertNow ? 'alert_start' : 'alert_end',
         time: now,
       }));
-      
       await redis.set('alert:state', JSON.stringify({
         alert: isAlertNow,
         lastChange: now,
@@ -60,6 +59,9 @@ export async function GET() {
       time: now 
     });
   } catch (error: any) {
-    return NextResponse.json({ error: 'Server error', message: error.message }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Server error', 
+      message: error.message 
+    }, { status: 500 });
   }
 }
