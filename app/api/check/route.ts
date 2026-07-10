@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Новый надёжный источник: alerts.in.ua (офіційне джерело)
-    const response = await fetch('https://api.alerts.in.ua/v1/alerts/current.json', {
+    // Надёжный источник: vadimklimenko.com (обновляется в реальном времени)
+    const response = await fetch('https://vadimklimenko.com/map/statuses.json', {
       headers: { 'User-Agent': 'AlertTracker/1.0' },
       cache: 'no-store',
     });
@@ -16,11 +16,17 @@ export async function GET() {
     
     const data = await response.json();
     
-    // В Запорожской области id = 17 (стандартный id в alerts.in.ua)
-    // Проверяем есть ли Запорожская область в активных тревогах
-    const zaporizhzhiaId = 17;
-    const activeAlerts = data.alerts || [];
-    const isAlertNow = activeAlerts.some((alert: any) => alert.id === zaporizhzhiaId);
+    // Ищем Запорожскую область в массиве регионов
+    let isAlertNow = false;
+    const regions = Array.isArray(data) ? data : Object.values(data);
+    
+    for (const region of regions) {
+      const name = String(region.name || '').toLowerCase();
+      if (name.includes('запоріз') || name.includes('zaporizh')) {
+        isAlertNow = Boolean(region.status);
+        break;
+      }
+    }
     
     const { redis } = await import('@/lib/redis');
     
@@ -48,7 +54,7 @@ export async function GET() {
     return NextResponse.json({ 
       success: true, 
       alert: isAlertNow,
-      source: 'alerts.in.ua',
+      source: 'vadimklimenko.com',
       time: now 
     });
   } catch (error: any) {
